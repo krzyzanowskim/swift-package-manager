@@ -19,6 +19,9 @@ import TSCUtility
 
 public final class BuildOperation: PackageStructureDelegate, SPMBuildCore.BuildSystem, BuildErrorAdviceProvider {
 
+    /// The delegate used by the build system.
+    public weak var delegate: SPMBuildCore.BuildSystemDelegate?
+
     /// The build parameters.
     public let buildParameters: BuildParameters
 
@@ -29,7 +32,7 @@ public final class BuildOperation: PackageStructureDelegate, SPMBuildCore.BuildS
     let packageGraphLoader: () throws -> PackageGraph
 
     /// The build delegate reference.
-    private var buildDelegate: BuildDelegate?
+    private var buildSystemDelegate: BuildOperationBuildSystemDelegateHandler?
 
     /// The build system reference.
     private var buildSystem: SPMLLBuild.BuildSystem?
@@ -116,7 +119,8 @@ public final class BuildOperation: PackageStructureDelegate, SPMBuildCore.BuildS
         let llbuildTarget = try computeLLBuildTargetName(for: subset)
         let success = buildSystem.build(target: llbuildTarget)
 
-        buildDelegate?.progressAnimation.complete(success: success)
+        buildSystemDelegate?.progressAnimation.complete(success: success)
+        delegate?.buildSystem(self, didFinishWithResult: success)
         guard success else { throw Diagnostics.fatalError }
 
         // Create backwards-compatibilty symlink to old build path.
@@ -195,24 +199,27 @@ public final class BuildOperation: PackageStructureDelegate, SPMBuildCore.BuildS
         )
 
         // Create the build delegate.
-        let buildDelegate = BuildDelegate(
+        let buildSystemDelegate = BuildOperationBuildSystemDelegateHandler(
+            buildSystem: self,
             bctx: bctx,
             diagnostics: diagnostics,
             outputStream: self.stdoutStream,
-            progressAnimation: progressAnimation
+            progressAnimation: progressAnimation,
+            delegate: self.delegate
         )
-        self.buildDelegate = buildDelegate
-        buildDelegate.isVerbose = isVerbose
+        self.buildSystemDelegate = buildSystemDelegate
+        buildSystemDelegate.isVerbose = isVerbose
 
         let databasePath = buildParameters.dataPath.appending(component: "build.db").pathString
-        let buildSystem = BuildSystem(
+        let buildSystem = SPMLLBuild.BuildSystem(
             buildFile: buildParameters.llbuildManifest.pathString,
             databaseFile: databasePath,
-            delegate: buildDelegate,
+            delegate: buildSystemDelegate,
             schedulerLanes: buildParameters.jobs
         )
-        buildDelegate.onCommmandFailure = {
+        buildSystemDelegate.onCommmandFailure = {
             buildSystem.cancel()
+            self.delegate?.buildSystemDidCancel(self)
         }
 
         return buildSystem
