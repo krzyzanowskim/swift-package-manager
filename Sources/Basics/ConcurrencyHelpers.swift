@@ -95,9 +95,11 @@ public final class ThreadSafeArrayStore<Value> {
         }
     }
 
-    public func append(_ item: Value) {
+    @discardableResult
+    public func append(_ item: Value) -> Int {
         self.lock.withLock {
             self.underlying.append(item)
+            return self.underlying.count
         }
     }
 
@@ -126,7 +128,7 @@ public final class ThreadSafeArrayStore<Value> {
     }
 }
 
-/// Thread-safe value boxing  structure
+/// Thread-safe value boxing structure
 public final class ThreadSafeBox<Value> {
     private var underlying: Value?
     private let lock = Lock()

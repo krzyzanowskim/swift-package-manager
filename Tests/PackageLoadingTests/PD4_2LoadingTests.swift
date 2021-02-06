@@ -8,13 +8,13 @@
  See http://swift.org/CONTRIBUTORS.txt for Swift project authors
 */
 
-import XCTest
-
-import TSCBasic
-import TSCUtility
-import SPMTestSupport
+import Basics
 import PackageModel
 import PackageLoading
+import SPMTestSupport
+import TSCBasic
+import TSCUtility
+import XCTest
 
 class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
     override var toolsVersion: ToolsVersion {
@@ -327,7 +327,7 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
                 "let package = Package(name: \"Trivial\")"))
 
         // Check at each possible spelling.
-        let currentVersion = Versioning.currentVersion
+        let currentVersion = SwiftVersion.currentVersion
         let possibleSuffixes = [
             "\(currentVersion.major).\(currentVersion.minor).\(currentVersion.patch)",
             "\(currentVersion.major).\(currentVersion.minor)",
@@ -351,7 +351,7 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
                     bytes: bogusManifest)
             }
             // Check we can load the repository.
-            let manifest = try manifestLoader.load(package: root, baseURL: "/foo", toolsVersion: .v4_2, packageKind: .root, fileSystem: fs)
+            let manifest = try manifestLoader.load(at: root, packageKind: .root, packageLocation: "/foo", toolsVersion: .v4_2, fileSystem: fs)
             XCTAssertEqual(manifest.name, "Trivial")
         }
     }
@@ -371,7 +371,7 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
             packageDir.appending(component: Manifest.basename + "@swift-3.swift"),
             bytes: ByteString(encodingAsUTF8: manifestContents))
         // Check we can load the manifest.
-        let manifest = try manifestLoader.load(package: packageDir, baseURL: "/foo", toolsVersion: .v4_2, packageKind: .root, fileSystem: fs)
+        let manifest = try manifestLoader.load(at: packageDir, packageKind: .root, packageLocation: "/foo", toolsVersion: .v4_2, fileSystem: fs)
         XCTAssertEqual(manifest.name, "Trivial")
         
         // Switch it around so that the main manifest is now the one that doesn't have a comment.
@@ -382,7 +382,7 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
             packageDir.appending(component: Manifest.basename + "@swift-4.swift"),
             bytes: ByteString(encodingAsUTF8: "// swift-tools-version:4.0\n" + manifestContents))
         // Check we can load the manifest.
-        let manifest2 = try manifestLoader.load(package: packageDir, baseURL: "/foo", toolsVersion: .v4_2, packageKind: .root, fileSystem: fs)
+        let manifest2 = try manifestLoader.load(at: packageDir, packageKind: .root, packageLocation: "/foo", toolsVersion: .v4_2, fileSystem: fs)
         XCTAssertEqual(manifest2.name, "Trivial")
     }
 
@@ -500,10 +500,11 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
             func check(loader: ManifestLoader, expectCached: Bool) {
                 delegate.clear()
                 let manifest = try! loader.load(
-                    package: manifestPath.parentDirectory,
-                    baseURL: manifestPath.pathString,
+                    at: manifestPath.parentDirectory,
+                    packageKind: .local,
+                    packageLocation: manifestPath.pathString,
                     toolsVersion: .v4_2,
-                    packageKind: .local
+                    fileSystem: fs
                 )
 
                 XCTAssertEqual(delegate.loaded, [manifestPath])
@@ -556,10 +557,11 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
             func check(loader: ManifestLoader, expectCached: Bool) {
                 delegate.clear()
                 let manifest = try! loader.load(
-                    package: manifestPath.parentDirectory,
-                    baseURL: manifestPath.pathString,
+                    at: manifestPath.parentDirectory,
+                    packageKind: .local,
+                    packageLocation: manifestPath.pathString,
                     toolsVersion: .v4_2,
-                    packageKind: .local
+                    fileSystem: fs
                 )
 
                 XCTAssertEqual(delegate.loaded, [manifestPath])
@@ -596,7 +598,7 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
             }
 
             let noCacheLoader = ManifestLoader(
-                manifestResources: Resources.default, useInMemoryCache: false, delegate: delegate)
+                manifestResources: Resources.default, delegate: delegate)
             for _ in 0..<2 {
                 check(loader: noCacheLoader, expectCached: false)
             }
@@ -632,10 +634,10 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
                 try fs.writeFileContents(manifestPath, bytes: stream.bytes)
 
                 let m = try manifestLoader.load(
-                    package: AbsolutePath.root,
-                    baseURL: "/foo",
-                    toolsVersion: .v4_2,
+                    at: AbsolutePath.root,
                     packageKind: .root,
+                    packageLocation: "/foo",
+                    toolsVersion: .v4_2,
                     fileSystem: fs)
 
                 XCTAssertEqual(m.name, "Trivial")
@@ -731,13 +733,16 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
 
             let diagnostics = DiagnosticsEngine()
             let delegate = ManifestTestDelegate()
-            let manifestLoader = ManifestLoader(manifestResources: Resources.default, cacheDir: path, useInMemoryCache: true, delegate: delegate)
+            let manifestLoader = ManifestLoader(manifestResources: Resources.default, cacheDir: path, delegate: delegate)
 
             // warm up caches
-            let manifest = try tsc_await { manifestLoader.load(package: manifestPath.parentDirectory,
-                                                               baseURL: manifestPath.pathString,
-                                                               toolsVersion: .v4_2,
+            let manifest = try tsc_await { manifestLoader.load(at: manifestPath.parentDirectory,
                                                                packageKind: .local,
+                                                               packageLocation: manifestPath.pathString,
+                                                               version: nil,
+                                                               revision: nil,
+                                                               toolsVersion: .v4_2,
+                                                               fileSystem: localFileSystem,
                                                                on: .global(),
                                                                completion: $0) }
             XCTAssertEqual(manifest.name, "Trivial")
@@ -747,10 +752,13 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
             let sync = DispatchGroup()
             for _ in 0 ..< total {
                 sync.enter()
-                manifestLoader.load(package: manifestPath.parentDirectory,
-                                    baseURL: manifestPath.pathString,
-                                    toolsVersion: .v4_2,
+                manifestLoader.load(at: manifestPath.parentDirectory,
                                     packageKind: .local,
+                                    packageLocation: manifestPath.pathString,
+                                    version: nil,
+                                    revision: nil,
+                                    toolsVersion: .v4_2,
+                                    fileSystem: localFileSystem,
                                     diagnostics: diagnostics,
                                     on: .global()) { result in
                     defer { sync.leave() }
@@ -782,7 +790,7 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
 
             let diagnostics = DiagnosticsEngine()
             let delegate = ManifestTestDelegate()
-            let manifestLoader = ManifestLoader(manifestResources: Resources.default, cacheDir: path, useInMemoryCache: true, delegate: delegate)
+            let manifestLoader = ManifestLoader(manifestResources: Resources.default, cacheDir: path, delegate: delegate)
 
             let sync = DispatchGroup()
             for _ in 0 ..< total {
@@ -805,10 +813,13 @@ class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
                 }
 
                 sync.enter()
-                manifestLoader.load(package: manifestPath.parentDirectory,
-                                    baseURL: manifestPath.pathString,
-                                    toolsVersion: .v4_2,
+                manifestLoader.load(at: manifestPath.parentDirectory,
                                     packageKind: .local,
+                                    packageLocation: manifestPath.pathString,
+                                    version: nil,
+                                    revision: nil,
+                                    toolsVersion: .v4_2,
+                                    fileSystem: localFileSystem,
                                     diagnostics: diagnostics,
                                     on: .global()) { result in
                     defer { sync.leave() }

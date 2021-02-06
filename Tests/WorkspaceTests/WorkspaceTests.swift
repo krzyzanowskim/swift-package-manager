@@ -355,7 +355,7 @@ final class WorkspaceTests: XCTestCase {
             let barKey = MockManifestLoader.Key(url: "/tmp/ws/pkgs/Bar", version: "1.0.0")
             let barGitKey = MockManifestLoader.Key(url: "/tmp/ws/pkgs/Bar.git", version: "1.0.0")
             let manifest = workspace.manifestLoader.manifests[barKey]!
-            workspace.manifestLoader.manifests[barGitKey] = manifest.with(url: "/tmp/ws/pkgs/Bar.git")
+            workspace.manifestLoader.manifests[barGitKey] = manifest.with(location: "/tmp/ws/pkgs/Bar.git")
         }
 
         workspace.checkPackageGraph(dependencies: dependencies) { graph, diagnostics in
@@ -852,8 +852,8 @@ final class WorkspaceTests: XCTestCase {
 
         let bRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "B"))
         let cRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "C"))
-        let bRef = PackageReference(identity: PackageIdentity(url: bRepo.url), path: bRepo.url)
-        let cRef = PackageReference(identity: PackageIdentity(url: cRepo.url), path: cRepo.url)
+        let bRef = PackageReference.remote(identity: PackageIdentity(url: bRepo.url), location: bRepo.url)
+        let cRef = PackageReference.remote(identity: PackageIdentity(url: cRepo.url), location: cRepo.url)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: v2],
@@ -908,8 +908,8 @@ final class WorkspaceTests: XCTestCase {
 
         let bRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "B"))
         let cRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "C"))
-        let bRef = PackageReference(identity: PackageIdentity(url: bRepo.url), path: bRepo.url)
-        let cRef = PackageReference(identity: PackageIdentity(url: cRepo.url), path: cRepo.url)
+        let bRef = PackageReference.remote(identity: PackageIdentity(url: bRepo.url), location: bRepo.url)
+        let cRef = PackageReference.remote(identity: PackageIdentity(url: cRepo.url), location: cRepo.url)
 
         try workspace.set(
             pins: [bRef: v1],
@@ -965,8 +965,8 @@ final class WorkspaceTests: XCTestCase {
 
         let bRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "B"))
         let cRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "C"))
-        let bRef = PackageReference(identity: PackageIdentity(url: bRepo.url), path: bRepo.url)
-        let cRef = PackageReference(identity: PackageIdentity(url: cRepo.url), path: cRepo.url)
+        let bRef = PackageReference.remote(identity: PackageIdentity(url: bRepo.url), location: bRepo.url)
+        let cRef = PackageReference.remote(identity: PackageIdentity(url: cRepo.url), location: cRepo.url)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: v1_5],
@@ -1016,7 +1016,7 @@ final class WorkspaceTests: XCTestCase {
         )
 
         let cRepo = RepositorySpecifier(url: testWorkspace.urlForPackage(withName: "C"))
-        let cRef = PackageReference(identity: PackageIdentity(url: cRepo.url), path: cRepo.url)
+        let cRef = PackageReference.remote(identity: PackageIdentity(url: cRepo.url), location: cRepo.url)
 
         try testWorkspace.set(
             pins: [cRef: v1_5],
@@ -1075,8 +1075,8 @@ final class WorkspaceTests: XCTestCase {
 
         let bRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "B"))
         let cRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "C"))
-        let bRef = PackageReference(identity: PackageIdentity(url: bRepo.url), path: bRepo.url)
-        let cRef = PackageReference(identity: PackageIdentity(url: cRepo.url), path: cRepo.url)
+        let bRef = PackageReference.remote(identity: PackageIdentity(url: bRepo.url), location: bRepo.url)
+        let cRef = PackageReference.remote(identity: PackageIdentity(url: cRepo.url), location: cRepo.url)
 
         try workspace.set(
             pins: [bRef: v1_5],
@@ -1137,8 +1137,8 @@ final class WorkspaceTests: XCTestCase {
 
         let bRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "B"))
         let cRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "C"))
-        let bRef = PackageReference(identity: PackageIdentity(url: bRepo.url), path: bRepo.url)
-        let cRef = PackageReference(identity: PackageIdentity(url: cRepo.url), path: cRepo.url)
+        let bRef = PackageReference.remote(identity: PackageIdentity(url: bRepo.url), location: bRepo.url)
+        let cRef = PackageReference.remote(identity: PackageIdentity(url: cRepo.url), location: cRepo.url)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: v1_5],
@@ -1200,8 +1200,8 @@ final class WorkspaceTests: XCTestCase {
 
         let bRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "B"))
         let cRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "C"))
-        let bRef = PackageReference(identity: PackageIdentity(url: bRepo.url), path: bRepo.url)
-        let cRef = PackageReference(identity: PackageIdentity(url: cRepo.url), path: cRepo.url)
+        let bRef = PackageReference.remote(identity: PackageIdentity(url: bRepo.url), location: bRepo.url)
+        let cRef = PackageReference.remote(identity: PackageIdentity(url: cRepo.url), location: cRepo.url)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: master],
@@ -1262,8 +1262,8 @@ final class WorkspaceTests: XCTestCase {
 
         let bRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "B"))
         let cRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "C"))
-        let bRef = PackageReference(identity: PackageIdentity(url: bRepo.url), path: bRepo.url)
-        let cRef = PackageReference(identity: PackageIdentity(url: cRepo.url), path: cRepo.url)
+        let bRef = PackageReference.remote(identity: PackageIdentity(url: bRepo.url), location: bRepo.url)
+        let cRef = PackageReference.remote(identity: PackageIdentity(url: cRepo.url), location: cRepo.url)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: v1_5],
@@ -1321,8 +1321,8 @@ final class WorkspaceTests: XCTestCase {
 
         let bRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "B"))
         let cRepo = RepositorySpecifier(url: workspace.urlForPackage(withName: "C"))
-        let bRef = PackageReference(identity: PackageIdentity(url: bRepo.url), path: bRepo.url)
-        let cRef = PackageReference(identity: PackageIdentity(url: cRepo.url), path: cRepo.url)
+        let bRef = PackageReference.remote(identity: PackageIdentity(url: bRepo.url), location: bRepo.url)
+        let cRef = PackageReference.remote(identity: PackageIdentity(url: cRepo.url), location: cRepo.url)
 
         try workspace.set(
             pins: [bRef: v1_5, cRef: v2],
@@ -1532,7 +1532,7 @@ final class WorkspaceTests: XCTestCase {
 
             let path = AbsolutePath("/tmp/ws/pkgs/Foo")
             let expectedChange = (
-                PackageReference(identity: PackageIdentity(path: path), path: path.pathString),
+                PackageReference.remote(identity: PackageIdentity(path: path), location: path.pathString),
                 stateChange
             )
             guard let change = changes?.first, changes?.count == 1 else {
@@ -1773,7 +1773,7 @@ final class WorkspaceTests: XCTestCase {
 
         // Check that we can compute missing dependencies.
         try workspace.loadDependencyManifests(roots: ["Root1", "Root2"]) { manifests, diagnostics in
-            XCTAssertEqual(manifests.missingPackageURLs().map { $0.path }.sorted(), ["/tmp/ws/pkgs/Bar", "/tmp/ws/pkgs/Foo"])
+            XCTAssertEqual(manifests.missingPackageURLs().map { $0.location }.sorted(), ["/tmp/ws/pkgs/Bar", "/tmp/ws/pkgs/Foo"])
             XCTAssertNoDiagnostics(diagnostics)
         }
 
@@ -1787,7 +1787,7 @@ final class WorkspaceTests: XCTestCase {
 
         // Check that we compute the correct missing dependencies.
         try workspace.loadDependencyManifests(roots: ["Root1", "Root2"]) { manifests, diagnostics in
-            XCTAssertEqual(manifests.missingPackageURLs().map { $0.path }.sorted(), ["/tmp/ws/pkgs/Bar"])
+            XCTAssertEqual(manifests.missingPackageURLs().map { $0.location }.sorted(), ["/tmp/ws/pkgs/Bar"])
             XCTAssertNoDiagnostics(diagnostics)
         }
 
@@ -1801,7 +1801,7 @@ final class WorkspaceTests: XCTestCase {
 
         // Check that we compute the correct missing dependencies.
         try workspace.loadDependencyManifests(roots: ["Root1", "Root2"]) { manifests, diagnostics in
-            XCTAssertEqual(manifests.missingPackageURLs().map { $0.path }.sorted(), [])
+            XCTAssertEqual(manifests.missingPackageURLs().map { $0.location }.sorted(), [])
             XCTAssertNoDiagnostics(diagnostics)
         }
     }
@@ -2223,7 +2223,7 @@ final class WorkspaceTests: XCTestCase {
 
         try workspace.loadDependencyManifests(roots: ["Root"]) { manifests, diagnostics in
             let editedPackages = manifests.editedPackagesConstraints()
-            XCTAssertEqual(editedPackages.map { $0.identifier.path }, [fooPath.pathString])
+            XCTAssertEqual(editedPackages.map { $0.package.location }, [fooPath.pathString])
             XCTAssertNoDiagnostics(diagnostics)
         }
 
@@ -2650,12 +2650,12 @@ final class WorkspaceTests: XCTestCase {
         let manifest = workspace.manifestLoader.manifests[fooKey]!
         workspace.manifestLoader.manifests[fooKey] = Manifest(
             name: manifest.name,
-            platforms: [],
             path: manifest.path,
-            url: manifest.url,
+            packageKind: .root,
+            packageLocation: manifest.packageLocation,
+            platforms: [],
             version: manifest.version,
             toolsVersion: manifest.toolsVersion,
-            packageKind: .root,
             dependencies: [PackageDependencyDescription(url: manifest.dependencies[0].url, requirement: .exact("1.5.0"))],
             targets: manifest.targets
         )
@@ -3679,7 +3679,7 @@ final class WorkspaceTests: XCTestCase {
             let pinsStore = try ws.pinsStore.load()
             let fooPin = pinsStore.pins.first(where: { $0.packageRef.identity.description == "foo" })!
 
-            let fooRepo = workspace.repoProvider.specifierMap[RepositorySpecifier(url: fooPin.packageRef.path)]!
+            let fooRepo = workspace.repoProvider.specifierMap[RepositorySpecifier(url: fooPin.packageRef.location)]!
             let revision = try fooRepo.resolveRevision(tag: "1.0.0")
             let newState = CheckoutState(revision: revision, version: "1.0.0")
 
@@ -3776,7 +3776,7 @@ final class WorkspaceTests: XCTestCase {
         // This verifies that the simplest possible loading APIs are available for package clients.
 
         // This checkout of the SwiftPM package.
-        let package = AbsolutePath(#file).parentDirectory.parentDirectory.parentDirectory
+        let packagePath = AbsolutePath(#file).parentDirectory.parentDirectory.parentDirectory
 
         // Clients must locate the corresponding “swiftc” exectuable themselves for now.
         // (This just uses the same one used by all the other tests.)
@@ -3785,15 +3785,15 @@ final class WorkspaceTests: XCTestCase {
         // From here the API should be simple and straightforward:
         let diagnostics = DiagnosticsEngine()
         let manifest = try tsc_await {
-            ManifestLoader.loadManifest(packagePath: package, swiftCompiler: swiftCompiler, swiftCompilerFlags: [], packageKind: .local, on: .global(), completion: $0)
+            ManifestLoader.loadManifest(at: packagePath, kind: .local, swiftCompiler: swiftCompiler, swiftCompilerFlags: [], on: .global(), completion: $0)
         }
 
         let loadedPackage = try tsc_await {
-            PackageBuilder.loadPackage(packagePath: package, swiftCompiler: swiftCompiler, swiftCompilerFlags: [], xcTestMinimumDeploymentTargets: [:], diagnostics: diagnostics, on: .global(), completion: $0)
+            PackageBuilder.loadPackage(at: packagePath, swiftCompiler: swiftCompiler, swiftCompilerFlags: [], xcTestMinimumDeploymentTargets: [:], diagnostics: diagnostics, on: .global(), completion: $0)
         }
 
         let graph = try Workspace.loadGraph(
-            packagePath: package, swiftCompiler: swiftCompiler, swiftCompilerFlags: [], diagnostics: diagnostics
+            packagePath: packagePath, swiftCompiler: swiftCompiler, swiftCompilerFlags: [], diagnostics: diagnostics
         )
 
         XCTAssertEqual(manifest.name, "SwiftPM")
@@ -4355,7 +4355,7 @@ final class WorkspaceTests: XCTestCase {
 
         // Pin A to 1.0.0, Checkout B to 1.0.0
         let aURL = workspace.urlForPackage(withName: "A")
-        let aRef = PackageReference(identity: PackageIdentity(url: aURL), path: aURL)
+        let aRef = PackageReference.remote(identity: PackageIdentity(url: aURL), location: aURL)
         let aRepo = workspace.repoProvider.specifierMap[RepositorySpecifier(url: aURL)]!
         let aRevision = try aRepo.resolveRevision(tag: "1.0.0")
         let aState = CheckoutState(revision: aRevision, version: "1.0.0")
@@ -4617,7 +4617,7 @@ final class WorkspaceTests: XCTestCase {
 
         // Pin A to 1.0.0, Checkout A to 1.0.0
         let aURL = workspace.urlForPackage(withName: "A")
-        let aRef = PackageReference(identity: PackageIdentity(url: aURL), path: aURL)
+        let aRef = PackageReference.remote(identity: PackageIdentity(url: aURL), location: aURL)
         let aRepo = workspace.repoProvider.specifierMap[RepositorySpecifier(url: aURL)]!
         let aRevision = try aRepo.resolveRevision(tag: "1.0.0")
         let aState = CheckoutState(revision: aRevision, version: "1.0.0")

@@ -1,7 +1,7 @@
 /*
  This source file is part of the Swift.org open source project
 
- Copyright 2020 Apple Inc. and the Swift project authors
+ Copyright 2020-2021 Apple Inc. and the Swift project authors
  Licensed under Apache License v2.0 with Runtime Library Exception
 
  See http://swift.org/LICENSE.txt for license information
@@ -9,6 +9,7 @@
  */
 
 import ArgumentParser
+import Basics
 import Foundation
 import PackageCollections
 import PackageModel
@@ -42,7 +43,7 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
         _superCommandName: "swift",
         abstract: "Interact with package collections",
         discussion: "SEE ALSO: swift build, swift package, swift run, swift test",
-        version: Versioning.currentVersion.completeDisplayString,
+        version: SwiftVersion.currentVersion.completeDisplayString,
         subcommands: [
             Add.self,
             Describe.self,
@@ -98,6 +99,9 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
 
         @Option(name: .long, help: "Sort order for the added collection")
         var order: Int?
+        
+        @Option(name: .long, help: "Trust the collection even if it is unsigned")
+        var trustUnsigned: Bool?
 
         mutating func run() throws {
             guard let collectionUrl = URL(string: collectionUrl) else {
@@ -106,7 +110,13 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
 
             let source = PackageCollectionsModel.CollectionSource(type: .json, url: collectionUrl)
             let collection = try with { collections in
-                return try tsc_await { collections.addCollection(source, order: order, callback: $0) }
+                try tsc_await {
+                    collections.addCollection(
+                        source,
+                        order: order,
+                        trustConfirmationProvider: trustUnsigned.map { userTrusted in { _, callback in callback(userTrusted) } },
+                        callback: $0
+                    ) }
             }
 
             print("Added \"\(collection.name)\" to your package collections.")
@@ -125,12 +135,11 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
             }
 
             let source = PackageCollectionsModel.CollectionSource(type: .json, url: collectionUrl)
-            let collection = try with { collections in
-                return try tsc_await { collections.getCollection(source, callback: $0) }
+            try with { collections in
+                let collection = try tsc_await { collections.getCollection(source, callback: $0) }
+                _ = try tsc_await { collections.removeCollection(source, callback: $0) }
+                print("Removed \"\(collection.name)\" from your package collections.")
             }
-
-            _ = try with { collections in try tsc_await { collections.removeCollection(source, callback: $0) } }
-            print("Removed \"\(collection.name)\" from your package collections.")
         }
     }
 
@@ -154,31 +163,29 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
         var searchQuery: String
 
         mutating func run() throws {
-            switch searchMethod {
-            case .keywords:
-                let results = try with { collections in
-                    return try tsc_await { collections.findPackages(searchQuery, collections: nil, callback: $0) }
-                }
-                
-                if jsonOptions.json {
-                    try JSONEncoder.makeWithDefaults().print(results.items)
-                } else {
-                    results.items.forEach {
-                        print("\($0.package.repository.url): \($0.package.summary ?? "")")
+            try with { collections in
+                switch searchMethod {
+                case .keywords:
+                    let results = try tsc_await { collections.findPackages(searchQuery, collections: nil, callback: $0) }
+                    
+                    if jsonOptions.json {
+                        try JSONEncoder.makeWithDefaults().print(results.items)
+                    } else {
+                        results.items.forEach {
+                            print("\($0.package.repository.url): \($0.package.summary ?? "")")
+                        }
                     }
-                }
 
-            case .module:
-                let results = try with { collections in
-                    return try tsc_await { collections.findTargets(searchQuery, searchType: .exactMatch, collections: nil, callback: $0) }
-                }
+                case .module:
+                    let results = try tsc_await { collections.findTargets(searchQuery, searchType: .exactMatch, collections: nil, callback: $0) }
 
-                let packages = Set(results.items.flatMap { $0.packages })
-                if jsonOptions.json {
-                    try JSONEncoder.makeWithDefaults().print(packages)
-                } else {
-                    packages.forEach {
-                        print("\($0.repository.url): \($0.summary ?? "")")
+                    let packages = Set(results.items.flatMap { $0.packages })
+                    if jsonOptions.json {
+                        try JSONEncoder.makeWithDefaults().print(packages)
+                    } else {
+                        packages.forEach {
+                            print("\($0.repository.url): \($0.summary ?? "")")
+                        }
                     }
                 }
             }
@@ -220,70 +227,68 @@ public struct SwiftPackageCollectionsTool: ParsableCommand {
         }
 
         mutating func run() throws {
-            let identity = PackageIdentity(url: packageUrl)
-            let reference = PackageReference(identity: identity, path: packageUrl)
-            
-            do { // assume URL is for a package
-                let result = try with { collections in
-                    return try tsc_await { collections.getPackageMetadata(reference, callback: $0) }
-                }
+            try with { collections in
+                let identity = PackageIdentity(url: packageUrl)
+                let reference = PackageReference.remote(identity: identity, location: packageUrl)
                 
-                if let versionString = version {
-                    guard let version = TSCUtility.Version(string: versionString), let result = result.package.versions.first(where: { $0.version == version }), let printedResult = printVersion(result) else {
-                        throw CollectionsError.invalidVersionString(versionString)
+                do { // assume URL is for a package
+                    let result = try tsc_await { collections.getPackageMetadata(reference, callback: $0) }
+                    
+                    if let versionString = version {
+                        guard let version = TSCUtility.Version(string: versionString), let result = result.package.versions.first(where: { $0.version == version }), let printedResult = printVersion(result) else {
+                            throw CollectionsError.invalidVersionString(versionString)
+                        }
+                        
+                        if jsonOptions.json {
+                            try JSONEncoder.makeWithDefaults().print(result)
+                        } else {
+                            print("\(indent())Version: \(printedResult)")
+                        }
+                    } else {
+                        let description = optionalRow("Description", result.package.summary)
+                        let versions = result.package.versions.map { "\($0.version)" }.joined(separator: ", ")
+                        let watchers = optionalRow("Watchers", result.package.watchersCount?.description)
+                        let readme = optionalRow("Readme", result.package.readmeURL?.absoluteString)
+                        let authors = optionalRow("Authors", result.package.authors?.map { $0.username }.joined(separator: ", "))
+                        let latestVersion = optionalRow("\(String(repeating: "-", count: 60))\n\(indent())Latest Version", printVersion(result.package.latestVersion))
+
+                        if jsonOptions.json {
+                            try JSONEncoder.makeWithDefaults().print(result.package)
+                        } else {
+                            print("""
+                                \(description)
+                                Available Versions: \(versions)\(watchers)\(readme)\(authors)\(latestVersion)
+                            """)
+                        }
+                    }
+                } catch { // assume URL is for a collection
+                    // If a version argument was given, we do not perform the fallback.
+                    if version != nil {
+                        throw error
                     }
                     
-                    if jsonOptions.json {
-                        try JSONEncoder.makeWithDefaults().print(result)
-                    } else {
-                        print("\(indent())Version: \(printedResult)")
+                    guard let collectionUrl = URL(string: packageUrl) else {
+                        throw CollectionsError.invalidArgument("collectionUrl")
                     }
-                } else {
-                    let description = optionalRow("Description", result.package.summary)
-                    let versions = result.package.versions.map { "\($0.version)" }.joined(separator: ", ")
-                    let watchers = optionalRow("Watchers", result.package.watchersCount?.description)
-                    let readme = optionalRow("Readme", result.package.readmeURL?.absoluteString)
-                    let authors = optionalRow("Authors", result.package.authors?.map { $0.username }.joined(separator: ", "))
-                    let latestVersion = optionalRow("\(String(repeating: "-", count: 60))\n\(indent())Latest Version", printVersion(result.package.latestVersion))
-
+                    
+                    let source = PackageCollectionsModel.CollectionSource(type: .json, url: collectionUrl)
+                    let collection = try tsc_await { collections.getCollection(source, callback: $0) }
+                    
+                    let description = optionalRow("Description", collection.overview)
+                    let keywords = optionalRow("Keywords", collection.keywords?.joined(separator: ", "))
+                    let createdAt = optionalRow("Created At", DateFormatter().string(from: collection.createdAt))
+                    let packages = collection.packages.map { "\($0.repository.url)" }.joined(separator: "\n\(indent(levels: 2))")
+                    
                     if jsonOptions.json {
-                        try JSONEncoder.makeWithDefaults().print(result.package)
+                        try JSONEncoder.makeWithDefaults().print(collection)
                     } else {
                         print("""
-                            \(description)
-                            Available Versions: \(versions)\(watchers)\(readme)\(authors)\(latestVersion)
-                        """)
+                                        Name: \(collection.name)
+                                        Source: \(collection.source.url)\(description)\(keywords)\(createdAt)
+                                        Packages:
+                                            \(packages)
+                                    """)
                     }
-                }
-            } catch { // assume URL is for a collection
-                // If a version argument was given, we do not perform the fallback.
-                if version != nil {
-                    throw error
-                }
-                
-                guard let collectionUrl = URL(string: packageUrl) else {
-                    throw CollectionsError.invalidArgument("collectionUrl")
-                }
-                
-                let source = PackageCollectionsModel.CollectionSource(type: .json, url: collectionUrl)
-                let collection = try with { collections in
-                    try tsc_await { collections.getCollection(source, callback: $0) }
-                }
-                
-                let description = optionalRow("Description", collection.overview)
-                let keywords = optionalRow("Keywords", collection.keywords?.joined(separator: ", "))
-                let createdAt = optionalRow("Created At", DateFormatter().string(from: collection.createdAt))
-                let packages = collection.packages.map { "\($0.repository.url)" }.joined(separator: "\n\(indent(levels: 2))")
-                
-                if jsonOptions.json {
-                    try JSONEncoder.makeWithDefaults().print(collection)
-                } else {
-                    print("""
-                                    Name: \(collection.name)
-                                    Source: \(collection.source.url)\(description)\(keywords)\(createdAt)
-                                    Packages:
-                                        \(packages)
-                                """)
                 }
             }
         }

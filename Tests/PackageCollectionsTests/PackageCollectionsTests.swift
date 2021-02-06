@@ -1,7 +1,7 @@
 /*
  This source file is part of the Swift.org open source project
 
- Copyright (c) 2020 Apple Inc. and the Swift project authors
+ Copyright (c) 2020-2021 Apple Inc. and the Swift project authors
  Licensed under Apache License v2.0 with Runtime Library Exception
 
  See http://swift.org/LICENSE.txt for license information
@@ -66,6 +66,112 @@ final class PackageCollectionsTests: XCTestCase {
         do {
             let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
             XCTAssertEqual(list.count, 1, "list count should match")
+        }
+    }
+
+    func testAddUnsigned() throws {
+        let configuration = PackageCollections.Configuration()
+        let storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        let mockCollections = makeMockCollections(count: 3, signed: false)
+
+        let collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        let metadataProvider = MockMetadataProvider([:])
+        let packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        // User trusted
+        _ = try tsc_await { callback in packageCollections.addCollection(mockCollections[0].source, order: nil, trustConfirmationProvider: { _, cb in cb(true) }, callback: callback) }
+        // User untrusted
+        XCTAssertThrowsError(
+            try tsc_await { callback in
+                packageCollections.addCollection(mockCollections[1].source, order: nil, trustConfirmationProvider: { _, cb in cb(false) }, callback: callback)
+            }) { error in
+            guard case PackageCollectionError.untrusted = error else {
+                return XCTFail("Expected PackageCollectionError.untrusted")
+            }
+        }
+        // User preference unknown
+        XCTAssertThrowsError(
+            try tsc_await { callback in packageCollections.addCollection(mockCollections[1].source, order: nil, trustConfirmationProvider: nil, callback: callback) }) { error in
+            guard case PackageCollectionError.trustConfirmationRequired = error else {
+                return XCTFail("Expected PackageCollectionError.trustConfirmationRequired")
+            }
+        }
+
+        do {
+            let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+            XCTAssertEqual(list.count, 1, "list count should match")
+        }
+    }
+
+    func testInvalidCollectionNotAdded() throws {
+        let configuration = PackageCollections.Configuration()
+        let storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        let mockCollection = makeMockCollections(count: 1).first!
+
+        let collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider([])]
+        let metadataProvider = MockMetadataProvider([:])
+        let packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+            XCTAssertEqual(list.count, 0, "list should be empty")
+
+            let sources = try tsc_await { callback in storage.sources.list(callback: callback) }
+            XCTAssertEqual(sources.count, 0, "sources should be empty")
+        }
+
+        // add fails because collection is not found
+        guard case .failure = tsc_await({ callback in packageCollections.addCollection(mockCollection.source, order: nil, callback: callback) }) else {
+            return XCTFail("expected error")
+        }
+
+        do {
+            let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+            XCTAssertEqual(list.count, 0, "list count should match")
+
+            let sources = try tsc_await { callback in storage.sources.list(callback: callback) }
+            XCTAssertEqual(sources.count, 0, "sources should be empty")
+        }
+    }
+
+    func testCollectionPendingTrustConfirmIsKeptOnAdd() throws {
+        let configuration = PackageCollections.Configuration()
+        let storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        let mockCollection = makeMockCollections(count: 1, signed: false).first!
+
+        let collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider([mockCollection])]
+        let metadataProvider = MockMetadataProvider([:])
+        let packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+            XCTAssertEqual(list.count, 0, "list should be empty")
+
+            let sources = try tsc_await { callback in storage.sources.list(callback: callback) }
+            XCTAssertEqual(sources.count, 0, "sources should be empty")
+        }
+
+        guard case .failure = tsc_await({ callback in packageCollections.addCollection(mockCollection.source, order: nil, callback: callback) }) else {
+            return XCTFail("expected error")
+        }
+
+        do {
+            let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+            XCTAssertEqual(list.count, 0, "list count should match")
+
+            let sources = try tsc_await { callback in storage.sources.list(callback: callback) }
+            XCTAssertEqual(sources.count, 1, "sources should match")
         }
     }
 
@@ -320,6 +426,55 @@ final class PackageCollectionsTests: XCTestCase {
         }
     }
 
+    func testUpdateTrust() throws {
+        let configuration = PackageCollections.Configuration()
+        let storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        let mockCollections = makeMockCollections(count: 1, signed: false)
+
+        let collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        let metadataProvider = MockMetadataProvider([:])
+        let packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        // User preference unknown - collection not saved to storage
+        _ = try? tsc_await { callback in packageCollections.addCollection(mockCollections.first!.source, order: nil, trustConfirmationProvider: nil, callback: callback) }
+
+        do {
+            let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        var source = mockCollections.first!.source
+
+        // Update to trust the source. It will trigger a collection refresh which will save collection to storage.
+        source.isTrusted = true
+        _ = try tsc_await { callback in packageCollections.updateCollection(source, callback: callback) }
+
+        do {
+            let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+            XCTAssertEqual(list.count, 1, "list count should match")
+        }
+
+        // Update to untrust the source. It will trigger a collection refresh which will remove collection from storage.
+        source.isTrusted = false
+        XCTAssertThrowsError(try tsc_await { callback in packageCollections.updateCollection(source, callback: callback) }) { error in
+            guard case PackageCollectionError.untrusted = error else {
+                return XCTFail("Expected PackageCollectionError.untrusted")
+            }
+        }
+
+        do {
+            let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+    }
+
     func testListPerformance() throws {
         #if ENABLE_COLLECTION_PERF_TESTS
         #else
@@ -391,7 +546,8 @@ final class PackageCollectionsTests: XCTestCase {
                                                                 keywords: [UUID().uuidString, UUID().uuidString],
                                                                 packages: [mockPackage],
                                                                 createdAt: Date(),
-                                                                createdBy: nil)
+                                                                createdBy: nil,
+                                                                signature: nil)
 
         let mockCollection2 = PackageCollectionsModel.Collection(source: .init(type: .json, url: URL(string: "https://feed.mock/\(UUID().uuidString)")!),
                                                                  name: UUID().uuidString,
@@ -399,7 +555,8 @@ final class PackageCollectionsTests: XCTestCase {
                                                                  keywords: [UUID().uuidString, UUID().uuidString],
                                                                  packages: [mockPackage],
                                                                  createdAt: Date(),
-                                                                 createdBy: nil)
+                                                                 createdBy: nil,
+                                                                 signature: nil)
 
         let expectedCollections = [mockCollection, mockCollection2]
         let expectedCollectionsIdentifiers = expectedCollections.map { $0.identifier }.sorted()
@@ -411,7 +568,7 @@ final class PackageCollectionsTests: XCTestCase {
         let packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
 
         try mockCollections.forEach { collection in
-            _ = try tsc_await { callback in packageCollections.addCollection(collection.source, callback: callback) }
+            _ = try tsc_await { callback in packageCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) }, callback: callback) }
         }
 
         do {
@@ -541,7 +698,8 @@ final class PackageCollectionsTests: XCTestCase {
                                                                 keywords: [UUID().uuidString, UUID().uuidString],
                                                                 packages: [mockPackage],
                                                                 createdAt: Date(),
-                                                                createdBy: nil)
+                                                                createdBy: nil,
+                                                                signature: nil)
 
         let mockCollection2 = PackageCollectionsModel.Collection(source: .init(type: .json, url: URL(string: "https://feed.mock/\(UUID().uuidString)")!),
                                                                  name: UUID().uuidString,
@@ -549,7 +707,8 @@ final class PackageCollectionsTests: XCTestCase {
                                                                  keywords: [UUID().uuidString, UUID().uuidString],
                                                                  packages: [mockPackage],
                                                                  createdAt: Date(),
-                                                                 createdBy: nil)
+                                                                 createdBy: nil,
+                                                                 signature: nil)
 
         let expectedCollections = [mockCollection, mockCollection2]
         let expectedCollectionsIdentifiers = expectedCollections.map { $0.identifier }.sorted()
@@ -561,7 +720,7 @@ final class PackageCollectionsTests: XCTestCase {
         let packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
 
         try mockCollections.forEach { collection in
-            _ = try tsc_await { callback in packageCollections.addCollection(collection.source, callback: callback) }
+            _ = try tsc_await { callback in packageCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) }, callback: callback) }
         }
 
         do {
@@ -654,7 +813,13 @@ final class PackageCollectionsTests: XCTestCase {
                 if self.brokenSources.contains(source) {
                     callback(.failure(self.error))
                 } else {
-                    callback(.success(PackageCollectionsModel.Collection(source: source, name: "", overview: nil, keywords: nil, packages: [], createdAt: Date(), createdBy: nil)))
+                    let signature = PackageCollectionsModel.SignatureData(
+                        certificate: PackageCollectionsModel.SignatureData.Certificate(
+                            subject: .init(commonName: ""),
+                            issuer: .init(commonName: "")
+                        )
+                    )
+                    callback(.success(PackageCollectionsModel.Collection(source: source, name: "", overview: nil, keywords: nil, packages: [], createdAt: Date(), createdBy: nil, signature: signature)))
                 }
             }
         }
@@ -703,6 +868,26 @@ final class PackageCollectionsTests: XCTestCase {
         // test isolation - broken feeds does not impact good ones
         let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
         XCTAssertEqual(list.count, goodSources.count + 1, "list count should match")
+    }
+
+    func testRefreshOne() throws {
+        let configuration = PackageCollections.Configuration()
+        let storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        let mockCollections = makeMockCollections(count: 1)
+        let collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        let metadataProvider = MockMetadataProvider([:])
+        let packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        try mockCollections.forEach { collection in
+            // save directly to storage to circumvent refresh on add
+            _ = try tsc_await { callback in storage.sources.add(source: collection.source, order: nil, callback: callback) }
+        }
+        _ = try tsc_await { callback in packageCollections.refreshCollection(mockCollections.first!.source, callback: callback) }
+
+        let list = try tsc_await { callback in packageCollections.listCollections(callback: callback) }
+        XCTAssertEqual(list.count, mockCollections.count, "list count should match")
     }
 
     func testListTargets() throws {
@@ -1000,25 +1185,5 @@ final class PackageCollectionsTests: XCTestCase {
         XCTAssertNotNil(metadata)
         let delta = Date().timeIntervalSince(start)
         XCTAssert(delta < 1.0, "should fetch quickly, took \(delta)")
-    }
-
-    func testSourceValidation() throws {
-        let httpsSource = PackageCollectionsModel.CollectionSource(type: .json, url: URL(string: "https://feed.mock.io")!)
-        XCTAssertNil(httpsSource.validate(), "not expecting errors")
-
-        let httpsSource2 = PackageCollectionsModel.CollectionSource(type: .json, url: URL(string: "HTTPS://feed.mock.io")!)
-        XCTAssertNil(httpsSource2.validate(), "not expecting errors")
-
-        let httpsSource3 = PackageCollectionsModel.CollectionSource(type: .json, url: URL(string: "HttpS://feed.mock.io")!)
-        XCTAssertNil(httpsSource3.validate(), "not expecting errors")
-
-        let httpSource = PackageCollectionsModel.CollectionSource(type: .json, url: URL(string: "http://feed.mock.io")!)
-        XCTAssertEqual(httpSource.validate()?.count, 1, "expecting errors")
-
-        let otherProtocolSource = PackageCollectionsModel.CollectionSource(type: .json, url: URL(string: "ftp://feed.mock.io")!)
-        XCTAssertEqual(otherProtocolSource.validate()?.count, 1, "expecting errors")
-
-        let brokenUrlSource = PackageCollectionsModel.CollectionSource(type: .json, url: URL(string: "blah")!)
-        XCTAssertEqual(brokenUrlSource.validate()?.count, 1, "expecting errors")
     }
 }

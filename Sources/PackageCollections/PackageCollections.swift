@@ -1,7 +1,7 @@
 /*
  This source file is part of the Swift.org open source project
 
- Copyright (c) 2020 Apple Inc. and the Swift project authors
+ Copyright (c) 2020-2021 Apple Inc. and the Swift project authors
  Licensed under Apache License v2.0 with Runtime Library Exception
 
  See http://swift.org/LICENSE.txt for license information
@@ -103,9 +103,9 @@ public struct PackageCollections: PackageCollectionsProtocol {
                 }
                 let refreshResults = ThreadSafeArrayStore<Result<Model.Collection, Error>>()
                 sources.forEach { source in
-                    self.refreshCollectionFromSource(source: source) { refreshResult in
-                        refreshResults.append(refreshResult)
-                        if refreshResults.count == sources.count {
+                    self.refreshCollectionFromSource(source: source, trustConfirmationProvider: nil) { refreshResult in
+                        let count = refreshResults.append(refreshResult)
+                        if count == sources.count {
                             let errors = refreshResults.compactMap { $0.failure }
                             callback(errors.isEmpty ? .success(sources) : .failure(MultipleErrors(errors)))
                         }
@@ -115,8 +115,16 @@ public struct PackageCollections: PackageCollectionsProtocol {
         }
     }
 
+    public func refreshCollection(
+        _ source: PackageCollectionsModel.CollectionSource,
+        callback: @escaping (Result<PackageCollectionsModel.Collection, Error>) -> Void
+    ) {
+        self.refreshCollectionFromSource(source: source, trustConfirmationProvider: nil, callback: callback)
+    }
+
     public func addCollection(_ source: PackageCollectionsModel.CollectionSource,
                               order: Int? = nil,
+                              trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Bool) -> Void) -> Void)? = nil,
                               callback: @escaping (Result<PackageCollectionsModel.Collection, Error>) -> Void) {
         if let errors = source.validate()?.errors() {
             return callback(.failure(MultipleErrors(errors)))
@@ -129,7 +137,22 @@ public struct PackageCollections: PackageCollectionsProtocol {
                 callback(.failure(error))
             case .success:
                 // next try to fetch the collection from the network and store it locally so future operations dont need to access the network
-                self.refreshCollectionFromSource(source: source, order: order, callback: callback)
+                self.refreshCollectionFromSource(source: source, trustConfirmationProvider: trustConfirmationProvider) { collectionResult in
+                    switch collectionResult {
+                    case .failure(let error):
+                        // Don't delete the source if we are either pending user confirmation or have recorded user's preference
+                        if let error = error as? PackageCollectionError, error == .trustConfirmationRequired || error == .untrusted {
+                            return callback(.failure(error))
+                        }
+                        // Otherwise remove source since it fails to be fetched
+                        self.storage.sources.remove(source: source) { _ in
+                            // Whether removal succeeds or not, return the refresh error
+                            callback(.failure(error))
+                        }
+                    case .success(let collection):
+                        callback(.success(collection))
+                    }
+                }
             }
         }
     }
@@ -150,6 +173,18 @@ public struct PackageCollections: PackageCollectionsProtocol {
                                to order: Int,
                                callback: @escaping (Result<Void, Error>) -> Void) {
         self.storage.sources.move(source: source, to: order, callback: callback)
+    }
+
+    public func updateCollection(_ source: PackageCollectionsModel.CollectionSource,
+                                 callback: @escaping (Result<PackageCollectionsModel.Collection, Error>) -> Void) {
+        self.storage.sources.update(source: source) { result in
+            switch result {
+            case .failure(let error):
+                callback(.failure(error))
+            case .success:
+                self.refreshCollectionFromSource(source: source, trustConfirmationProvider: nil, callback: callback)
+            }
+        }
     }
 
     // Returns information about a package collection.
@@ -275,7 +310,7 @@ public struct PackageCollections: PackageCollectionsProtocol {
     // Fetch the collection from the network and store it in local storage
     // This helps avoid network access in normal operations
     private func refreshCollectionFromSource(source: PackageCollectionsModel.CollectionSource,
-                                             order _: Int? = nil,
+                                             trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Bool) -> Void) -> Void)?,
                                              callback: @escaping (Result<Model.Collection, Error>) -> Void) {
         if let errors = source.validate()?.errors() {
             return callback(.failure(MultipleErrors(errors)))
@@ -288,7 +323,52 @@ public struct PackageCollections: PackageCollectionsProtocol {
             case .failure(let error):
                 callback(.failure(error))
             case .success(let collection):
-                self.storage.collections.put(collection: collection, callback: callback)
+                // If collection is signed and signature is valid, save to storage. `provider.get`
+                // would have failed if signature were invalid.
+                if collection.isSigned {
+                    return self.storage.collections.put(collection: collection, callback: callback)
+                }
+
+                // If collection is not signed, check if it's trusted by user and prompt user if needed.
+                if let isTrusted = source.isTrusted {
+                    if isTrusted {
+                        return self.storage.collections.put(collection: collection, callback: callback)
+                    } else {
+                        // Try to remove the untrusted collection (if previously saved) from storage before calling back
+                        return self.storage.collections.remove(identifier: collection.identifier) { _ in
+                            callback(.failure(PackageCollectionError.untrusted))
+                        }
+                    }
+                }
+
+                // No user preference recorded, so we need to prompt if we can.
+                guard let trustConfirmationProvider = trustConfirmationProvider else {
+                    // Try to remove the untrusted collection (if previously saved) from storage before calling back
+                    return self.storage.collections.remove(identifier: collection.identifier) { _ in
+                        callback(.failure(PackageCollectionError.trustConfirmationRequired))
+                    }
+                }
+
+                trustConfirmationProvider(collection) { userTrusted in
+                    var source = source
+                    source.isTrusted = userTrusted
+                    // Record user preference then save collection to storage
+                    self.storage.sources.update(source: source) { updateSourceResult in
+                        switch updateSourceResult {
+                        case .failure(let error):
+                            callback(.failure(error))
+                        case .success:
+                            if userTrusted {
+                                self.storage.collections.put(collection: collection, callback: callback)
+                            } else {
+                                // Try to remove the untrusted collection (if previously saved) from storage before calling back
+                                return self.storage.collections.remove(identifier: collection.identifier) { _ in
+                                    callback(.failure(PackageCollectionError.untrusted))
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
