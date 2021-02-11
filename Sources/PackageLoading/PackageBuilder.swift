@@ -273,52 +273,6 @@ public final class PackageBuilder {
         self.warnAboutImplicitExecutableTargets = warnAboutImplicitExecutableTargets
     }
 
-    // FIXME: deprecated 12/2020, remove once clients migrate
-    @available(*, deprecated, message: "use non-blocking version instead")
-    public static func loadPackage(
-        packagePath: AbsolutePath,
-        swiftCompiler: AbsolutePath,
-        swiftCompilerFlags: [String],
-        xcTestMinimumDeploymentTargets: [PackageModel.Platform:PlatformVersion]
-            = MinimumDeploymentTarget.default.xcTestMinimumDeploymentTargets,
-        diagnostics: DiagnosticsEngine,
-        kind: PackageReference.Kind = .root
-    ) throws -> Package {
-        return try temp_await {
-            Self.loadPackage(packagePath: packagePath,
-                             swiftCompiler: swiftCompiler,
-                             swiftCompilerFlags: swiftCompilerFlags,
-                             xcTestMinimumDeploymentTargets: xcTestMinimumDeploymentTargets,
-                             diagnostics: diagnostics,
-                             kind: kind,
-                             on: .global(),
-                             completion: $0)
-        }
-    }
-
-    // FIXME: deprecated 2/2021, remove once clients migrate
-     @available(*, deprecated, message: "use at:kind:... version instead")
-     public static func loadPackage(
-         packagePath: AbsolutePath,
-         swiftCompiler: AbsolutePath,
-         swiftCompilerFlags: [String],
-         xcTestMinimumDeploymentTargets: [PackageModel.Platform:PlatformVersion]
-             = MinimumDeploymentTarget.default.xcTestMinimumDeploymentTargets,
-         diagnostics: DiagnosticsEngine,
-         kind: PackageReference.Kind = .root,
-         on queue: DispatchQueue,
-         completion: @escaping (Result<Package, Error>) -> Void
-     ) {
-         Self.loadPackage(at: packagePath,
-                          kind: kind,
-                          swiftCompiler: swiftCompiler,
-                          swiftCompilerFlags: swiftCompilerFlags,
-                          xcTestMinimumDeploymentTargets: xcTestMinimumDeploymentTargets,
-                          diagnostics: diagnostics,
-                          on: queue,
-                          completion: completion)
-     }
-
     /// Loads a package from a package repository using the resources associated with a particular `swiftc` executable.
     ///
     /// - Parameters:
@@ -798,7 +752,7 @@ public final class PackageBuilder {
         default:
             targetType = sources.computeTargetType()
             if targetType == .executable && manifest.toolsVersion >= .v5_4 && warnAboutImplicitExecutableTargets {
-                diagnostics.emit(warning: "in tools version \(ToolsVersion.v5_4) and later, use 'executableTarget()' to declare executable targets")
+                diagnostics.emit(warning: "'\(potentialModule.name)' was identified as an executable target given the presence of a 'main.swift' file. Starting with tools version \(ToolsVersion.v5_4) executable targets should be declared as 'executableTarget()'")
             }
         }
         
